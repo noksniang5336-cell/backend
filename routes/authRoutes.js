@@ -1,38 +1,22 @@
 const express = require("express");
 
+const {
+  login,
+  register,
+} = require("../controllers/authController");
+
 const router = express.Router();
 
-const {
-  createAdhesion,
-  getAdhesions,
-  getAdhesionById,
-  updateAdhesion,
-  deleteAdhesion,
-} = require("../controllers/adhesionController");
+// ===============================
+// CONNEXION
+// POST /api/auth/login
+// ===============================
+router.post("/login", login);
 
-const { protegerRoute } = require("../middleware/authMiddleware");
-
-// Vérification temporaire
-console.log("createAdhesion :", typeof createAdhesion);
-console.log("getAdhesions :", typeof getAdhesions);
-console.log("getAdhesionById :", typeof getAdhesionById);
-console.log("updateAdhesion :", typeof updateAdhesion);
-console.log("deleteAdhesion :", typeof deleteAdhesion);
-console.log("protegerRoute :", typeof protegerRoute);
-
-// GET /api/adhesions
-router.get("/", protegerRoute, getAdhesions);
-
-// GET /api/adhesions/:id
-router.get("/:id", protegerRoute, getAdhesionById);
-
-// POST /api/adhesions
-router.post("/", protegerRoute, createAdhesion);
-
-// PUT /api/adhesions/:id
-router.put("/:id", protegerRoute, updateAdhesion);
-
-// DELETE /api/adhesions/:id
-router.delete("/:id", protegerRoute, deleteAdhesion);
+// ===============================
+// INSCRIPTION
+// POST /api/auth/register
+// ===============================
+router.post("/register", register);
 
 module.exports = router;
