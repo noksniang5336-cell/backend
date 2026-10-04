@@ -54,4 +54,6 @@ const adhesionSchema = new mongoose.Schema(
   }
 );
 
-module.exports = mongoose.model("Adhesion", adhesionSchema);
+module.exports =
+  mongoose.models.Adhesion ||
+  mongoose.model("Adhesion", adhesionSchema);

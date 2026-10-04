@@ -6,6 +6,7 @@ const Paiement = require("../models/Paiement");
 // GET /api/dashboard/stats
 // Statistiques réelles depuis MongoDB
 // =====================================================
+
 const getDashboardStats = async (req, res) => {
   try {
     const maintenant = new Date();
@@ -17,13 +18,21 @@ const getDashboardStats = async (req, res) => {
     const debutMois = new Date(
       maintenant.getFullYear(),
       maintenant.getMonth(),
-      1
+      1,
+      0,
+      0,
+      0,
+      0
     );
 
     const finMois = new Date(
       maintenant.getFullYear(),
       maintenant.getMonth() + 1,
-      1
+      1,
+      0,
+      0,
+      0,
+      0
     );
 
     const dans30Jours = new Date(maintenant);
@@ -40,20 +49,25 @@ const getDashboardStats = async (req, res) => {
     const beneficiairesActifsIds =
       await Adhesion.distinct("beneficiaire", {
         statut: "Actif",
+        dateFin: {
+          $gte: maintenant,
+        },
       });
 
     const beneficiairesActifs =
       beneficiairesActifsIds.length;
 
     // Hommes
-    const hommes = await Beneficiaire.countDocuments({
-      sexe: "Homme",
-    });
+    const hommes =
+      await Beneficiaire.countDocuments({
+        sexe: "Homme",
+      });
 
     // Femmes
-    const femmes = await Beneficiaire.countDocuments({
-      sexe: "Femme",
-    });
+    const femmes =
+      await Beneficiaire.countDocuments({
+        sexe: "Femme",
+      });
 
     // Sexe non renseigné
     const sexeNonRenseigne =
@@ -69,19 +83,22 @@ const getDashboardStats = async (req, res) => {
     // ADHÉSIONS
     // =====================================================
 
-    // Adhésions créées ce mois
+    // Adhésions commencées ce mois
     const adhesionsMois =
       await Adhesion.countDocuments({
-        createdAt: {
+        dateDebut: {
           $gte: debutMois,
           $lt: finMois,
         },
       });
 
-    // Adhésions actives
+    // Adhésions actuellement actives
     const adhesionsActives =
       await Adhesion.countDocuments({
         statut: "Actif",
+        dateFin: {
+          $gte: maintenant,
+        },
       });
 
     // Adhésions expirées
@@ -97,21 +114,17 @@ const getDashboardStats = async (req, res) => {
       });
 
     // =====================================================
-    // TYPE D'ADHÉSION
+    // TYPES D'ADHÉSION
     // =====================================================
-
-    // IMPORTANT :
-    // Si ton modèle utilise "type", garder "type".
-    // Si ton modèle utilise "typeAdhesion", remplacer ici.
 
     const nouvellesAdhesions =
       await Adhesion.countDocuments({
-        type: "Nouvelle",
+        typeAdhesion: "Nouvelle",
       });
 
     const renouvellements =
       await Adhesion.countDocuments({
-        type: "Renouvellement",
+        typeAdhesion: "Renouvellement",
       });
 
     // =====================================================
@@ -159,7 +172,9 @@ const getDashboardStats = async (req, res) => {
           $gte: maintenant,
         },
       })
-        .sort({ dateFin: 1 })
+        .sort({
+          dateFin: 1,
+        })
         .populate(
           "beneficiaire",
           "prenom nom"
@@ -193,11 +208,12 @@ const getDashboardStats = async (req, res) => {
       });
 
     // =====================================================
-    // PAIEMENTS DU MOIS
+    // PAIEMENTS PAYÉS DU MOIS
     // =====================================================
 
     const paiementsMois =
       await Paiement.countDocuments({
+        statut: "Payé",
         datePaiement: {
           $gte: debutMois,
           $lt: finMois,
@@ -210,6 +226,11 @@ const getDashboardStats = async (req, res) => {
 
     const montantPaiementsResult =
       await Paiement.aggregate([
+        {
+          $match: {
+            statut: "Payé",
+          },
+        },
         {
           $group: {
             _id: null,
@@ -323,66 +344,124 @@ const getDashboardStats = async (req, res) => {
     // RÉPONSE
     // =====================================================
 
-    res.status(200).json({
+    const statistiques = {
+      // Bénéficiaires
+      totalBeneficiaires,
+      beneficiairesActifs,
+
+      // Sexe
+      hommes,
+      femmes,
+      sexeNonRenseigne,
+
+      // Adhésions
+      adhesionsMois,
+      adhesionsActives,
+      adhesionsExpirees,
+      adhesionsSuspendues,
+      nouvellesAdhesions,
+      renouvellements,
+      montantAdhesions,
+      adhesionsBientotExpirees,
+
+      // Paiements
+      totalPaiements,
+      paiementsPayes,
+      paiementsAttente,
+      paiementsRetard,
+      paiementsAnnules,
+      paiementsMois,
+      montantPaiements,
+      montantPaiementsMois,
+
+      // Communes
+      beneficiairesParCommune,
+
+      // Prochaine échéance
+      prochaineEcheance: prochaineEcheance
+        ? {
+            dateFin:
+              prochaineEcheance.dateFin,
+
+            numeroAdhesion:
+              prochaineEcheance.numeroAdhesion,
+
+            beneficiaire:
+              prochaineEcheance.beneficiaire
+                ? `${prochaineEcheance.beneficiaire.prenom} ${prochaineEcheance.beneficiaire.nom}`
+                : "Bénéficiaire inconnu",
+          }
+        : null,
+    };
+
+    // =====================================================
+    // DEBUG
+    // =====================================================
+
+    console.log(
+      "📊 STATISTIQUES DASHBOARD"
+    );
+
+    console.log(
+      "👥 Total bénéficiaires :",
+      totalBeneficiaires
+    );
+
+    console.log(
+      "✅ Bénéficiaires actifs :",
+      beneficiairesActifs
+    );
+
+    console.log(
+      "📄 Adhésions totales :",
+      await Adhesion.countDocuments()
+    );
+
+    console.log(
+      "🟢 Adhésions actives :",
+      adhesionsActives
+    );
+
+    console.log(
+      "📅 Adhésions ce mois :",
+      adhesionsMois
+    );
+
+    console.log(
+      "💰 Paiements ce mois :",
+      paiementsMois
+    );
+
+    console.log(
+      "💵 Montant ce mois :",
+      montantPaiementsMois
+    );
+
+    console.log(
+      "⚠️ Paiements en retard :",
+      paiementsRetard
+    );
+
+    console.log(
+      "=============================="
+    );
+
+    // =====================================================
+    // ENVOI
+    // =====================================================
+
+    return res.status(200).json({
       success: true,
-
-      data: {
-        // Bénéficiaires
-        totalBeneficiaires,
-        beneficiairesActifs,
-
-        // Sexe
-        hommes,
-        femmes,
-        sexeNonRenseigne,
-
-        // Adhésions
-        adhesionsMois,
-        adhesionsActives,
-        adhesionsExpirees,
-        adhesionsSuspendues,
-        nouvellesAdhesions,
-        renouvellements,
-        montantAdhesions,
-        adhesionsBientotExpirees,
-
-        // Paiements
-        totalPaiements,
-        paiementsPayes,
-        paiementsAttente,
-        paiementsRetard,
-        paiementsAnnules,
-        paiementsMois,
-        montantPaiements,
-        montantPaiementsMois,
-
-        // Communes
-        beneficiairesParCommune,
-
-        // Prochaine échéance
-        prochaineEcheance: prochaineEcheance
-          ? {
-              dateFin:
-                prochaineEcheance.dateFin,
-
-              numeroAdhesion:
-                prochaineEcheance.numeroAdhesion,
-
-              beneficiaire:
-                prochaineEcheance.beneficiaire
-                  ? `${prochaineEcheance.beneficiaire.prenom} ${prochaineEcheance.beneficiaire.nom}`
-                  : "Bénéficiaire inconnu",
-            }
-          : null,
-      },
+      data: statistiques,
     });
+
   } catch (error) {
     console.error(
       "❌ Erreur statistiques Dashboard :",
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         "Erreur lors de la récupération des statistiques",

@@ -63,7 +63,4 @@ const beneficiaireSchema = new mongoose.Schema(
 
 module.exports =
   mongoose.models.Beneficiaire ||
-  mongoose.model(
-    "Beneficiaire",
-    beneficiaireSchema
-  );
+  mongoose.model("Beneficiaire", beneficiaireSchema);
