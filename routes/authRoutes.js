@@ -3,7 +3,7 @@ const express = require("express");
 const {
   login,
   register,
-  getProfil,
+  profil,
 } = require("../controllers/authController");
 
 const { protegerRoute } = require("../middleware/authMiddleware");
@@ -26,6 +26,6 @@ router.post("/register", register);
 // PROFIL
 // GET /api/auth/profil
 // ===============================
-router.get("/profil", protegerRoute, getProfil);
+router.get("/profil", protegerRoute, profil);
 
 module.exports = router;
