@@ -1,10 +1,11 @@
+
 const Beneficiaire = require("../models/Beneficiaire");
 const Adhesion = require("../models/Adhesion");
 const Paiement = require("../models/Paiement");
 
 // =====================================================
 // GET /api/dashboard/stats
-// Statistiques réelles depuis MongoDB
+// Statistiques du tableau de bord CMU
 // =====================================================
 
 const getDashboardStats = async (req, res) => {
@@ -12,27 +13,19 @@ const getDashboardStats = async (req, res) => {
     const maintenant = new Date();
 
     // =====================================================
-    // DATES
+    // DATES DU MOIS COURANT
     // =====================================================
 
     const debutMois = new Date(
       maintenant.getFullYear(),
       maintenant.getMonth(),
-      1,
-      0,
-      0,
-      0,
-      0
+      1
     );
 
     const finMois = new Date(
       maintenant.getFullYear(),
       maintenant.getMonth() + 1,
-      1,
-      0,
-      0,
-      0,
-      0
+      1
     );
 
     const dans30Jours = new Date(maintenant);
@@ -42,116 +35,90 @@ const getDashboardStats = async (req, res) => {
     // BÉNÉFICIAIRES
     // =====================================================
 
-    const totalBeneficiaires =
-      await Beneficiaire.countDocuments();
+    const [
+      totalBeneficiaires,
+      hommes,
+      femmes,
+      sexeNonRenseigne,
+    ] = await Promise.all([
+      Beneficiaire.countDocuments(),
 
-    // Bénéficiaires ayant au moins une adhésion active
-    const beneficiairesActifsIds =
-      await Adhesion.distinct("beneficiaire", {
-        statut: "Actif",
-        dateFin: {
-          $gte: maintenant,
-        },
-      });
-
-    const beneficiairesActifs =
-      beneficiairesActifsIds.length;
-
-    // Hommes
-    const hommes =
-      await Beneficiaire.countDocuments({
+      Beneficiaire.countDocuments({
         sexe: "Homme",
-      });
+      }),
 
-    // Femmes
-    const femmes =
-      await Beneficiaire.countDocuments({
+      Beneficiaire.countDocuments({
         sexe: "Femme",
-      });
+      }),
 
-    // Sexe non renseigné
-    const sexeNonRenseigne =
-      await Beneficiaire.countDocuments({
+      Beneficiaire.countDocuments({
         $or: [
           { sexe: { $exists: false } },
           { sexe: null },
           { sexe: "" },
         ],
+      }),
+    ]);
+
+    // Bénéficiaires ayant au moins une adhésion active
+    const beneficiairesActifsIds =
+      await Adhesion.distinct("beneficiaire", {
+        statut: "Actif",
+        dateFin: { $gte: maintenant },
       });
+
+    const beneficiairesActifs =
+      beneficiairesActifsIds.length;
 
     // =====================================================
     // ADHÉSIONS
     // =====================================================
 
-    // Adhésions commencées ce mois
-    const adhesionsMois =
-      await Adhesion.countDocuments({
-        dateDebut: {
-          $gte: debutMois,
-          $lt: finMois,
+    // Adhésions créées pendant le mois courant.
+    // createdAt est fourni par timestamps: true dans le modèle.
+    const adhesionsMois = await Adhesion.countDocuments({
+      createdAt: {
+        $gte: debutMois,
+        $lt: finMois,
+      },
+    });
+
+    // Adhésions actuellement actives et non expirées
+    const adhesionsActives = await Adhesion.countDocuments({
+      statut: "Actif",
+      dateFin: { $gte: maintenant },
+    });
+
+    const adhesionsExpirees = await Adhesion.countDocuments({
+      statut: "Expiré",
+    });
+
+    const adhesionsSuspendues = await Adhesion.countDocuments({
+      statut: "Suspendu",
+    });
+
+    const nouvellesAdhesions = await Adhesion.countDocuments({
+      typeAdhesion: "Nouvelle",
+    });
+
+    const renouvellements = await Adhesion.countDocuments({
+      typeAdhesion: "Renouvellement",
+    });
+
+    // Montant total des adhésions enregistrées
+    const montantAdhesionsResult = await Adhesion.aggregate([
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$montant" },
         },
-      });
-
-    // Adhésions actuellement actives
-    const adhesionsActives =
-      await Adhesion.countDocuments({
-        statut: "Actif",
-        dateFin: {
-          $gte: maintenant,
-        },
-      });
-
-    // Adhésions expirées
-    const adhesionsExpirees =
-      await Adhesion.countDocuments({
-        statut: "Expiré",
-      });
-
-    // Adhésions suspendues
-    const adhesionsSuspendues =
-      await Adhesion.countDocuments({
-        statut: "Suspendu",
-      });
-
-    // =====================================================
-    // TYPES D'ADHÉSION
-    // =====================================================
-
-    const nouvellesAdhesions =
-      await Adhesion.countDocuments({
-        typeAdhesion: "Nouvelle",
-      });
-
-    const renouvellements =
-      await Adhesion.countDocuments({
-        typeAdhesion: "Renouvellement",
-      });
-
-    // =====================================================
-    // MONTANT TOTAL DES ADHÉSIONS
-    // =====================================================
-
-    const montantAdhesionsResult =
-      await Adhesion.aggregate([
-        {
-          $group: {
-            _id: null,
-            total: {
-              $sum: "$montant",
-            },
-          },
-        },
-      ]);
+      },
+    ]);
 
     const montantAdhesions =
-      montantAdhesionsResult.length > 0
-        ? montantAdhesionsResult[0].total
-        : 0;
+      montantAdhesionsResult[0]?.total ?? 0;
 
-    // =====================================================
-    // ADHÉSIONS BIENTÔT EXPIRÉES
-    // =====================================================
-
+    // Adhésions actives qui expirent dans les 30 jours
     const adhesionsBientotExpirees =
       await Adhesion.countDocuments({
         statut: "Actif",
@@ -161,95 +128,73 @@ const getDashboardStats = async (req, res) => {
         },
       });
 
-    // =====================================================
-    // PROCHAINE ÉCHÉANCE
-    // =====================================================
-
-    const prochaineEcheance =
-      await Adhesion.findOne({
-        statut: "Actif",
-        dateFin: {
-          $gte: maintenant,
-        },
-      })
-        .sort({
-          dateFin: 1,
-        })
-        .populate(
-          "beneficiaire",
-          "prenom nom"
-        );
+    // Prochaine échéance d'adhésion
+    const prochaineEcheance = await Adhesion.findOne({
+      statut: "Actif",
+      dateFin: { $gte: maintenant },
+    })
+      .sort({ dateFin: 1 })
+      .populate("beneficiaire", "prenom nom");
 
     // =====================================================
     // PAIEMENTS
     // =====================================================
 
-    const totalPaiements =
-      await Paiement.countDocuments();
+    const [
+      totalPaiements,
+      paiementsPayes,
+      paiementsAttente,
+      paiementsRetard,
+      paiementsAnnules,
+    ] = await Promise.all([
+      Paiement.countDocuments(),
 
-    const paiementsPayes =
-      await Paiement.countDocuments({
+      Paiement.countDocuments({
         statut: "Payé",
-      });
+      }),
 
-    const paiementsAttente =
-      await Paiement.countDocuments({
+      Paiement.countDocuments({
         statut: "En attente",
-      });
+      }),
 
-    const paiementsRetard =
-      await Paiement.countDocuments({
+      // Paiements ayant le statut exact "En retard"
+      Paiement.countDocuments({
         statut: "En retard",
-      });
+      }),
 
-    const paiementsAnnules =
-      await Paiement.countDocuments({
+      Paiement.countDocuments({
         statut: "Annulé",
-      });
+      }),
+    ]);
 
-    // =====================================================
-    // PAIEMENTS PAYÉS DU MOIS
-    // =====================================================
+    // Nombre de paiements encaissés pendant le mois
+    const paiementsMois = await Paiement.countDocuments({
+      statut: "Payé",
+      datePaiement: {
+        $gte: debutMois,
+        $lt: finMois,
+      },
+    });
 
-    const paiementsMois =
-      await Paiement.countDocuments({
-        statut: "Payé",
-        datePaiement: {
-          $gte: debutMois,
-          $lt: finMois,
+    // Montant total de tous les paiements payés
+    const montantPaiementsResult = await Paiement.aggregate([
+      {
+        $match: {
+          statut: "Payé",
         },
-      });
-
-    // =====================================================
-    // MONTANT TOTAL DES PAIEMENTS
-    // =====================================================
-
-    const montantPaiementsResult =
-      await Paiement.aggregate([
-        {
-          $match: {
-            statut: "Payé",
-          },
+      },
+      {
+        $group: {
+          _id: null,
+          total: { $sum: "$montant" },
         },
-        {
-          $group: {
-            _id: null,
-            total: {
-              $sum: "$montant",
-            },
-          },
-        },
-      ]);
+      },
+    ]);
 
     const montantPaiements =
-      montantPaiementsResult.length > 0
-        ? montantPaiementsResult[0].total
-        : 0;
+      montantPaiementsResult[0]?.total ?? 0;
 
-    // =====================================================
-    // MONTANT DES PAIEMENTS DU MOIS
-    // =====================================================
-
+    // Montant réellement encaissé pendant le mois courant
     const montantPaiementsMoisResult =
       await Paiement.aggregate([
         {
@@ -264,17 +209,13 @@ const getDashboardStats = async (req, res) => {
         {
           $group: {
             _id: null,
-            total: {
-              $sum: "$montant",
-            },
+            total: { $sum: "$montant" },
           },
         },
       ]);
 
     const montantPaiementsMois =
-      montantPaiementsMoisResult.length > 0
-        ? montantPaiementsMoisResult[0].total
-        : 0;
+      montantPaiementsMoisResult[0]?.total ?? 0;
 
     // =====================================================
     // BÉNÉFICIAIRES PAR COMMUNE
@@ -290,16 +231,12 @@ const getDashboardStats = async (req, res) => {
             },
           },
         },
-
         {
           $group: {
             _id: "$commune",
-            total: {
-              $sum: 1,
-            },
+            total: { $sum: 1 },
           },
         },
-
         {
           $lookup: {
             from: "communes",
@@ -308,14 +245,12 @@ const getDashboardStats = async (req, res) => {
             as: "communeInfo",
           },
         },
-
         {
           $unwind: {
             path: "$communeInfo",
             preserveNullAndEmptyArrays: true,
           },
         },
-
         {
           $project: {
             _id: 0,
@@ -328,28 +263,24 @@ const getDashboardStats = async (req, res) => {
             total: 1,
           },
         },
-
         {
           $sort: {
             total: -1,
           },
         },
-
         {
           $limit: 10,
         },
       ]);
 
     // =====================================================
-    // RÉPONSE
+    // CONSTRUCTION DE LA RÉPONSE
     // =====================================================
 
     const statistiques = {
       // Bénéficiaires
       totalBeneficiaires,
       beneficiairesActifs,
-
-      // Sexe
       hommes,
       femmes,
       sexeNonRenseigne,
@@ -380,91 +311,48 @@ const getDashboardStats = async (req, res) => {
       // Prochaine échéance
       prochaineEcheance: prochaineEcheance
         ? {
-            dateFin:
-              prochaineEcheance.dateFin,
-
+            dateFin: prochaineEcheance.dateFin,
             numeroAdhesion:
               prochaineEcheance.numeroAdhesion,
-
-            beneficiaire:
-              prochaineEcheance.beneficiaire
-                ? `${prochaineEcheance.beneficiaire.prenom} ${prochaineEcheance.beneficiaire.nom}`
-                : "Bénéficiaire inconnu",
+            beneficiaire: prochaineEcheance.beneficiaire
+              ? `${prochaineEcheance.beneficiaire.prenom} ${prochaineEcheance.beneficiaire.nom}`
+              : "Bénéficiaire inconnu",
           }
         : null,
     };
 
     // =====================================================
-    // DEBUG
+    // JOURNAL DES STATISTIQUES
     // =====================================================
 
-    console.log(
-      "📊 STATISTIQUES DASHBOARD"
-    );
-
-    console.log(
-      "👥 Total bénéficiaires :",
-      totalBeneficiaires
-    );
-
-    console.log(
-      "✅ Bénéficiaires actifs :",
-      beneficiairesActifs
-    );
-
-    console.log(
-      "📄 Adhésions totales :",
-      await Adhesion.countDocuments()
-    );
-
-    console.log(
-      "🟢 Adhésions actives :",
-      adhesionsActives
-    );
-
-    console.log(
-      "📅 Adhésions ce mois :",
-      adhesionsMois
-    );
-
-    console.log(
-      "💰 Paiements ce mois :",
-      paiementsMois
-    );
-
-    console.log(
-      "💵 Montant ce mois :",
-      montantPaiementsMois
-    );
-
-    console.log(
-      "⚠️ Paiements en retard :",
-      paiementsRetard
-    );
-
-    console.log(
-      "=============================="
-    );
+    console.log("===== STATISTIQUES DASHBOARD CMU =====");
+    console.log("Total bénéficiaires :", totalBeneficiaires);
+    console.log("Bénéficiaires actifs :", beneficiairesActifs);
+    console.log("Adhésions créées ce mois :", adhesionsMois);
+    console.log("Adhésions actives :", adhesionsActives);
+    console.log("Paiements encaissés ce mois :", paiementsMois);
+    console.log("Montant encaissé ce mois :", montantPaiementsMois);
+    console.log("Paiements en retard :", paiementsRetard);
+    console.log("======================================");
 
     // =====================================================
-    // ENVOI
+    // ENVOI AU FRONTEND REACT
     // =====================================================
 
     return res.status(200).json({
       success: true,
       data: statistiques,
     });
-
   } catch (error) {
     console.error(
-      "❌ Erreur statistiques Dashboard :",
+      "Erreur statistiques Dashboard :",
       error
     );
 
     return res.status(500).json({
       success: false,
       message:
-        "Erreur lors de la récupération des statistiques",
+        "Erreur lors de la récupération des statistiques.",
       error: error.message,
     });
   }
